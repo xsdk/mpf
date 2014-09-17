@@ -1,0 +1,6 @@
+*.pyproj
+*.sln
+*.suo
+*.log
+*.pyc
+mpt
