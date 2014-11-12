@@ -34,7 +34,7 @@ class MatrixLight(Device):
         # some things later.
         self.config['number_str'] = str(config['number']).upper()
 
-        self.hw_driver = self.machine.platform.configure_matrixlight(self.config)
+        self.hw_driver, self.number = self.machine.platform.configure_matrixlight(self.config)
 
         self.registered_handlers = []
 
@@ -46,9 +46,21 @@ class MatrixLight(Device):
                         'brightness': 0,
                         'priority': 0}
 
+        # register for action events
+        self.machine.events.add_handler('action_light_' + self.name + '_on',
+                                        self.on)
+        self.machine.events.add_handler('action_light_' + self.name + '_off',
+                                        self.off)
+
     def on(self, brightness=255, fade_ms=0, start_brightness=None,
-           priority=0, cache=True):
-        # todo need to add priority and cache support
+           priority=0, cache=True, force=False):
+
+        # First, if this incoming command is at a lower priority than what the
+        # light is doing now, we don't proceed
+        if priority < self.state['priority'] and not force:
+            return
+
+        # todo cache support
         # todo add brightness 0 as the same as on(0)
         if type(brightness) is list:
             brightness = brightness[0]
@@ -66,8 +78,9 @@ class MatrixLight(Device):
 
         self.hw_driver.on(brightness, fade_ms, start_brightness)
 
-    def off(self, fade_ms=0, priority=0, cache=True):
-        self.on(brightness=0, fade_ms=fade_ms, priority=priority, cache=cache)
+    def off(self, fade_ms=0, priority=0, cache=True, force=False):
+        self.on(brightness=0, fade_ms=fade_ms, priority=priority, cache=cache,
+                force=force)
 
     def add_handler(self, callback):
         """Registers a handler to be called when this light changes state."""
@@ -82,9 +95,16 @@ class MatrixLight(Device):
         if callback in self.registered_handlers:
             self.registered_handlers.remove(callback)
 
-    def restore(self):
+    def restore(self, force=False):
+        """Restores the light state from cache."""
+
+        # todo revisit force
+
+        # if self.cache['priority'] >= self.state['priority'] or force is True:
+
         self.on(brightness=self.cache['brightness'],
-                priority=self.cache['priority'])
+                priority=self.cache['priority'],
+                force=True)
 
 
 # The MIT License (MIT)

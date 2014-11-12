@@ -12,6 +12,7 @@ import os
 from optparse import OptionParser
 import errno
 from mpf.system.machine_controller import MachineController
+import version
 
 # Allow command line options to do things
 # We use optparse instead of argpase so python 2.6 works
@@ -36,17 +37,42 @@ parser.add_option("-l", "--logfile",
 
 parser.add_option("-v", "--verbose",
                   action="store_const", dest="loglevel", const=logging.DEBUG,
-                  default=logging.INFO, help="Enables verbose logging")
+                  default=logging.INFO, help="Enables verbose logging to the "
+                  "log file")
+
+parser.add_option("-V", "--verboseconsole",
+                  action="store_true", dest="consoleloglevel",
+                  default=logging.INFO,
+                  help="Enables verbose logging to the console. Do NOT on "
+                  "Windows platforms")
+
+parser.add_option("-o", "--optimized",
+                  action="store_true", dest="optimized", default=False,
+                  help="Enables performance optimized game loop")
 
 parser.add_option("-x", "--nohw",
                   action="store_false", dest="physical_hw", default=True,
                   help="Specifies physical game hardware is not connected")
 
+parser.add_option("--versions",
+                  action="store_true", dest="version", default=False,
+                  help="Shows the MPF version and quits")
+
 (options, args) = parser.parse_args()
 options_dict = vars(options)  # convert the values instance to python dict
 
+# if --version was passed, print the version and quit
+if options_dict['version']:
+    print "Mission Pinball Framework version:", version.__version__
+    quit()
+
 # add the first positional argument into the options dict as the machine path
-options_dict['machinepath'] = args[0]
+try:
+    options_dict['machinepath'] = args[0]
+except:
+    print "Error: You need to specify the path to your machine_files folder "\
+        "for the game you want to run."
+    quit()
 
 # Configure logging. Creates a logfile and logs to the console.
 # Formating options are documented here:
@@ -58,18 +84,23 @@ except OSError as exception:
     if exception.errno != errno.EEXIST:
         raise
 
-logfile_format = "%(asctime)s : %(name)s : %(message)s"
+logging.basicConfig(level=options.loglevel,
+                    format='%(asctime)s : %(name)s : %(message)s',
+                    #datefmt='%H:%M:%S',
+                    filename=options.logfile,
+                    filemode='w')
 
-
-logging.basicConfig(level=options.loglevel, filename=options.logfile,
-                    format=logfile_format, filemode='w')
-
-console_format = "%(asctime)s : %(name)s : %(message)s"
-console_timestamp_format = "%H:%M:%S"
+# define a Handler which writes INFO messages or higher to the sys.stderr
 console = logging.StreamHandler()
-console.setLevel(options.loglevel)
-console.setFormatter(logging.Formatter(fmt=console_format,
-                                       datefmt=console_timestamp_format))
+console.setLevel(options.consoleloglevel)
+
+# set a format which is simpler for console use
+formatter = logging.Formatter('%(levelname)s : %(name)s : %(message)s')
+
+# tell the handler to use this format
+console.setFormatter(formatter)
+
+# add the handler to the root logger
 logging.getLogger('').addHandler(console)
 
 

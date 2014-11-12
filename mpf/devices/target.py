@@ -9,43 +9,82 @@
 import logging
 from mpf.system.devices import Device
 from mpf.system.tasks import DelayManager
-from mpf.system.timing import Timing
 from mpf.system.show_controller import Playlist
 from collections import deque
 
 
 class Target(Device):
-    '''
-    Target:
-        switch:
-        light:
-        reset_coils:
-        reset_events:
-            ball_starting: 0
-            droptargetbank_Judge_complete: 1s
-        complete_show:
-        complete_script:
 
-    '''
+    config_section = 'Targets'
+    collection = 'targets'
 
     # todo need to add complete show and complete script
     # todo support multiple switches & multiple lights
 
     def __init__(self, machine, name, config, collection=None):
         self.log = logging.getLogger('Target.' + name)
+
+        if 'enable_events' not in config:
+            config['enable_events'] = {'ball_started': 0}
+
+        if 'disable_events' not in config:
+            config['disable_events'] = {'ball_ending': 0}
+
         super(Target, self).__init__(machine, name, config, collection)
 
-        self.complete = False
         self.lit = False
         self.device_str = 'target'
 
         # set config defaults
         if 'light' not in self.config:
             self.config['light'] = None
+        else:
+            # convert light string to a matrixlight or led object
+            try:
+                if self.config['light'] in self.machine.lights:
+                    self.log.debug("Configuring with light: %s", self.config['light'])
+                    self.config['light'] = self.machine.lights[self.config['light']]
+            except:
+                if self.config['light'] in self.machine.leds:
+                    self.log.debug("Configuring with LED: %s", self.config['light'])
+                    self.config['light'] = self.machine.leds[self.config['light']]
+
+        if 'light_if_unlit' not in self.config:
+            self.config['light_if_unlit'] = True
+
+        if 'unlight_if_lit' not in self.config:
+            self.config['unlight_if_lit'] = False
+
+        if 'default_state' not in self.config:
+            self.config['default_state'] = 'unlit'
+
+        if 'reset_events' in self.config:
+            self.config['reset_events'] = self.machine.string_to_list(
+                self.config['reset_events'])
+        else:
+            self.config['reset_events'] = [None]
+        # todo change this to dict with timing delays?
+
+        # light script
+        # unlight script
+        # light color
+        # unlight color
 
         # register for switch handlers so we know if this switch is hit
+        # note this only looks for activations
         self.machine.switch_controller.add_switch_handler(self.config['switch'],
-                                                          self.hit)
+                                                          self.hit, 1)
+
+        # register for events
+
+        self.machine.events.add_handler('action_target_' + self.name +
+                                        '_light', self.light)
+
+        self.machine.events.add_handler('action_target_' + self.name +
+                                        '_unlight', self.unlight)
+
+        self.machine.events.add_handler('action_target_' + self.name +
+                                        '_toggle', self.toggle)
 
     def hit(self, stealth=False):
         """This target was just hit.
@@ -53,71 +92,126 @@ class Target(Device):
         Stealth lets us change the status without posting the events. Used for
         rotation.
         """
-        self.complete = True
-        if self.config['light']:
-            self.machine.lights[self.config['light']].on()
-            # todo change this to the light controller, or to include an effect
-            # todo only do this during active ball?
+        self.log.debug("Hit. Currently lit: %s", self.lit)
+
+        # todo make this only duing active balls?
+
+        if not self.lit:
+            if not stealth:
+                self.machine.events.post(self.device_str + '_' +
+                                         self.name + '_unlit_hit')
+            if self.config['light_if_unlit']:  # light
+                self.light(stealth)
+
+        elif self.lit:
+            if not stealth:
+                self.machine.events.post(self.device_str + '_' +
+                                         self.name + '_lit_hit')
+            if self.config['unlight_if_lit']:  # unlight
+                self.unlight(stealth)
+
+    def light(self, stealth=False):
+        self.lit = True
+        self.log.debug("Lighting Target. Stealth: %s", stealth)
+
+        # todo add state param
 
         if not stealth:
-            self.machine.events.post(self.device_str + '_' + self.name +
-                                     '_complete')
+            self.machine.events.post(self.device_str + '_' +
+                                     self.name + '_lit')
 
-        # todo add lit handler
-
-    def reset(self, stealth=False):
-        """Resets this target."""
-        self.complete = False
         if self.config['light']:
-            self.machine.lights[self.config['light']].off()
-            # todo change this to the light controller, or to include an effect
-            # todo only do this during active ball?
+            if self.config['light_script']:
+                pass
+                # todo add lit script or light color
+            else:
+                self.config['light'].on()
+                self.log.debug("turning on light")
 
-        # todo do show or script
+    def unlight(self, stealth=False):
+        self.lit = False
+        self.log.debug("Unlighting Target. Stealth: %s", stealth)
+
+        # todo add state param
+
+        if not stealth:
+            self.machine.events.post(self.device_str + '_' +
+                                     self.name + '_unlit')
+
+        if self.config['light']:
+            if self.config['unlight_script']:
+                pass
+                # todo add lit script or light color
+            else:
+                self.config['light'].off()
+                self.log.debug("turning off light")
+
+    def toggle(self, stealth=False):
+        self.log.debug("Toggling lit state")
+        if self.lit:
+            self.unlight(stealth)
+        else:
+            self.light(stealth)
+
+    def reset(self, *args, **kwargs):
+        self.log.debug("Resetting Target. Default state: %s",
+                       self.config['default_state'])
+        # todo add state param
+
+        if self.config['default_state'] == 'lit':
+            self.light(False)
+        else:
+            self.unlight(False)
 
 
 class TargetGroup(Device):
-    """Represents a bank of drop targets in a pinball machine by grouping
-    together multiple DropTarget class devices.
 
-        targets:
-        rotate_left_events:
-        rotate_right_events:
-        complete_show:
-        complete_script:
-
-    """
+    config_section = 'TargetGroups'
+    collection = 'target_groups'
 
     # todo need to add complete_scripts
     # todo add show playback speed
     # need to add some concept of active that makes sure completion & rotations
     # only happen when they should
 
-    def __init__(self, machine, name, config, collection=None):
+    def __init__(self, machine, name, config, collection=None,
+                 member_collection=None, device_str=None):
         self.log = logging.getLogger('TargetGroup.' + name)
         super(TargetGroup, self).__init__(machine, name, config, collection)
+
         self.delay = DelayManager()
+        if not device_str:
+            self.device_str = 'targets'
+        else:
+            self.device_str = device_str
 
-        #self.devices_str = 'targets'
-        #self.member_collection
+        if not member_collection:
+            member_collection = self.machine.targets
 
-        self.num_complete = 0
+        self.num_lit = 0
+        self.num_unlit = 0
         self.num_targets = 0
         self.targets = list()
 
         # make sure our target list is a list
-        self.config[self.devices_str] = self.machine.string_to_list(
-            self.config[self.devices_str])
+        self.config[self.device_str] = self.machine.string_to_list(
+            self.config[self.device_str])
 
         # create our list of objects
-        for target in self.config[self.devices_str]:
-            self.targets.append(self.member_collection[target])
+        for target in self.config[self.device_str]:
+            self.targets.append(member_collection[target])
 
-        if 'complete_show' not in self.config:
-            self.config['complete_show'] = None
+        if 'lit_complete_show' not in self.config:
+            self.config['lit_complete_show'] = None
 
-        if 'complete_script' not in self.config:
-            self.config['complete_script'] = None
+        if 'lit_complete_script' not in self.config:
+            self.config['lit_complete_script'] = None
+
+        if 'unlit_complete_show' not in self.config:
+            self.config['unlit_complete_show'] = None
+
+        if 'unlit_complete_script' not in self.config:
+            self.config['unlt_complete_script'] = None
 
         if 'rotate_left_events' not in self.config:
             self.config['rotate_left_events'] = list()
@@ -132,19 +226,20 @@ class TargetGroup(Device):
                 self.config['rotate_right_events'])
 
         # If no reset events are specified, just self reset when complete
-        if 'reset_events' not in self.config:
-            self.config['reset_events'] = {(self.devices_str + '_' +
+        if not self.config['reset_events']:
+            self.config['reset_events'] = {(self.device_str + '_' +
                                            self.name + '_complete'): 0}
+        # todo look for config typo where they don't enter a delay time?
 
         self.num_targets = len(self.targets)
 
         # set event handlers to watch for target state changes
         for target in self.targets:
             self.machine.events.add_handler(
-                target.device_str + '_' + target.name + '_complete',
+                target.device_str + '_' + target.name + '_lit',
                 self.update_count)
             self.machine.events.add_handler(
-                target.device_str + '_' + target.name + '_reset',
+                target.device_str + '_' + target.name + '_unlit',
                 self.update_count)
 
         # need to wait until after the show controller is loaded
@@ -156,110 +251,133 @@ class TargetGroup(Device):
         for event in self.config['rotate_right_events']:
             self.machine.events.add_handler(event, self.rotate, direction='right')
 
-        self.enable_reset_events()
-
     def load_shows(self):
-        if self.config['complete_show']:
+        if self.config['lit_complete_show']:
             playlist = Playlist(self.machine)
             playlist.add_show(step_num=1,
-                              show=self.machine.shows[self.config['complete_show']],
+                              show=self.machine.shows[self.config[
+                                                      'lit_complete_show']],
                               num_repeats=1,
                               tocks_per_sec=10)
             playlist.step_settings(step=1)
-            self.config['complete_show'] = playlist
+            self.config['lit_complete_show'] = playlist
+
+        if self.config['unlit_complete_show']:
+            playlist = Playlist(self.machine)
+            playlist.add_show(step_num=1,
+                              show=self.machine.shows[self.config[
+                                                      'unlit_complete_show']],
+                              num_repeats=1,
+                              tocks_per_sec=10)
+            playlist.step_settings(step=1)
+            self.config['unlit_complete_show'] = playlist
 
     def update_count(self):
-        """One of this group's targets changed state. Let's recount them all."""
+        """One of this group's targets changed state. Let's recount them all.
+        """
 
-        num_complete = 0
+        self.log.info("entering update count for device: %s", self.name)
+
+        num_lit = 0
         for target in self.targets:
-            if target.complete:
-                num_complete += 1
+            if target.lit:
+                num_lit += 1
 
-        self.num_complete = num_complete
+        self.log.info("current number lit: %s", num_lit)
+        self.log.info("previous number lit: %s", self.num_lit)
 
-        if self.num_complete == self.num_targets:
-            self.group_complete()
+        old_lit = self.num_lit
 
-    def group_complete(self):
-        """All the targets in this group are complete."""
+        # Post events for this group based on new lits or unlits
+        if num_lit > old_lit:  # we have a new lit
+            self.log.info("found a new lit")
+            for new_hit in range(num_lit - old_lit):
+                self.machine.events.post(self.device_str + '_' + self.name +
+                                         '_lit_hit')
 
-        if self.config['complete_show']:
-            self.config['complete_show'].start(priority=100, repeat=False,
-                                               reset=True)
+        elif old_lit > num_lit:  # we have a new unlit
+            self.log.info("found a new unlit")
+            for new_hit in range(old_lit - num_lit):
+                self.machine.events.post(self.device_str + '_' + self.name +
+                                         '_unlit_hit')
 
-        self.machine.events.post(self.devices_str + '_' +
-                                 self.name + '_complete')
+        self.num_lit = num_lit
+        self.num_unlit = self.num_targets - self.num_lit
 
-    def enable_reset_events(self):
-        """Causes this target to watch for the reset events."""
+        self.log.debug("Updated target group state. Num lit: %s, Num unlit:"
+                       " %s", self.num_lit, self.num_unlit)
 
-        for event, delay in self.config['reset_events'].iteritems():
-            self.machine.events.add_handler(event=event,
-                                        handler=self.reset_request,
-                                        ms_delay=Timing.string_to_ms(delay))
+        if self.num_lit == self.num_targets:
+            self.lit_complete()
+        elif self.num_unlit == self.num_targets:
+            self.unlit_complete()
 
-    def disable_reset_events(self):
-        """Disables this target group watching for reset events. In other
-        words, if the reset events are posted, this target group will not
-        respond.
-        """
+    def lit_complete(self):
+        """All the targets in this group are lit."""
+        self.log.debug("All targets in group are lit")
 
-        for event, delay in self.config['reset_events'].iteritems():
-            self.machine.events.remove_handler(method=self.reset_request,
-                                        ms_delay=(Timing.string_to_ms(delay)))
+        if self.config['lit_complete_show']:
+            self.config['lit_complete_show'].start(priority=100, repeat=False,
+                                                   reset=True)
 
-    def reset_request(self, ms_delay=0, **kwargs):
-        """Received a request to reset this target group.
+        self.machine.events.post(self.device_str + '_' +
+                                 self.name + '_lit_complete')
 
-        This method will set a delay to wait for the amount of time specified
-        in the reset delay, then call reset().
+    def unlit_complete(self):
+        """All the targets in this group are lit."""
+        self.log.debug("All targets in group are unlit")
 
-        **kwargs since we don't know where this is coming from
+        if self.config['unlit_complete_show']:
+            self.config['unlit_complete_show'].start(priority=100, repeat=False,
+                                                     reset=True)
 
-        """
+        self.machine.events.post(self.device_str + '_' +
+                                 self.name + '_unlit_complete')
 
-        if ms_delay:
-            self.delay.add(self.name + '_target_reset', ms_delay, self.reset)
-        else:
-            self.reset()
-
-    def reset(self):
+    def reset(self, *args, **kwargs):
         """Resets this group of targets."""
         # todo only do this if we have completed targets? Add a force?
-        self.log.debug("Resetting group")
+        self.log.debug("Resetting target group")
 
         for target in self.targets:
             target.reset()
 
-        self.num_complete = 0
+        self.update_count()
 
         # todo do reset show or script
 
-    def rotate(self, direction='right', steps=1):
-        if self.num_complete == 0:
-            return  # no need to go through all this if no targets are lit
+        # todo add enable and disable methods
 
-        # create a list which shows which targets are active.
-        complete_list = deque()
+    def rotate(self, direction='right', move_state=True, steps=1):
+
+        if not self.machine.game or not self.machine.game.num_balls_in_play:
+            return
+
+        self.log.debug("Rotating target group. Direction: %s, Moving state:"
+                       "%s, Steps: %s", direction, move_state, steps)
+
+        # todo implement move_colors
+
+        # create a list which shows which targets are lit.
+        lit_list = deque()
         for target in self.targets:
-            if target.complete:
-                complete_list.append(True)
+            if target.lit:
+                lit_list.append(True)
             else:
-                complete_list.append(False)
+                lit_list.append(False)
 
         # rotate that list
         if direction == 'right':
-            complete_list.rotate(steps)
+            lit_list.rotate(steps)
         else:
-            complete_list.rotate(steps * -1)
+            lit_list.rotate(steps * -1)
 
         # step through all our targets and update their complete status
         for i in range(self.num_targets):
-            if complete_list[i]:
-                self.targets[i].hit(stealth=True)
+            if lit_list[i]:
+                self.targets[i].light(stealth=True)
             else:
-                self.targets[i].reset(stealth=True)
+                self.targets[i].unlight(stealth=True)
 
 
 # The MIT License (MIT)

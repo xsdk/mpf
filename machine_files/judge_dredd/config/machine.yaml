@@ -10,12 +10,12 @@ Machine:
     Max Balls: 6
 
 Hardware:
-    Platform: virtual
+    Platform: fast
     DriverBoards: wpc
 
 Fast:
-    port: COM5
-    baud: 921600
+    port: COM7
+    baud: 1000000
     config_number_format: = 'hex'
 
 LEDSettings:
@@ -90,6 +90,7 @@ Switches:
         tags: start
     plumbBob:
         number: S14
+        tags: tilt
     ShooterLaneL:
         number: S15
     outlaneL:
@@ -103,6 +104,7 @@ Switches:
         tags: ballLive
     slamTilt:
         number: S21
+        tags: slamTilt
     coinDoor:
         number: S22
     ticketDispenser:
@@ -497,13 +499,6 @@ MatrixLights:
         number: L87
     startButton:
         number: L88
-
-LEDs:
-    led0:
-        number: 0-0
-        brightness_compensation: 0.6
-    led1:
-        number: 0-1
 
 GIs:
     gi01:  # lower backglass

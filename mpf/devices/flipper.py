@@ -36,12 +36,34 @@ class Flipper(Device):
 
     def __init__(self, machine, name, config, collection=None):
         self.log = logging.getLogger('Flipper.' + name)
+
+        if 'enable_events' not in config:
+            config['enable_events'] = {'ball_started': 0}
+
+        if 'disable_events' not in config:
+            config['disable_events'] = {'ball_ending': 0,
+                                        'tilt': 0,
+                                        'slam_tilt': 0}
+
         super(Flipper, self).__init__(machine, name, config, collection)
 
         # todo convert to dict
         self.no_hold = False
         self.strength = 100
         self.inverted = False
+        self.rules = dict()
+
+        self.rules['a'] = False
+        self.rules['b'] = False
+        self.rules['c'] = False
+        self.rules['d'] = False
+        self.rules['e'] = False
+        self.rules['f'] = False
+        self.rules['h'] = False
+        self.rules['g'] = False
+
+        if config:
+            self.configure(config)
 
     def configure(self, config=None):
         """Configures the flipper device.
@@ -58,15 +80,12 @@ class Flipper(Device):
 
         self.log.debug("Configuring device with: %s", self.config)
 
-        # todo do we convert all of these to objects?
-
+        # todo convert these to objects:
         # config['main_coil']
         # config['activation_switch']
         # config['hold_coil']
         # config['eos_switch']
         # config['use_eos']
-
-        self.hold_pwm = config['hold_pwm']  # todo not used???
 
         self.flipper_coils = []
         self.flipper_coils.append(self.config['main_coil'])
@@ -74,11 +93,11 @@ class Flipper(Device):
             self.flipper_coils.append(self.config['hold_coil'])
 
         self.flipper_switches = []
-        self.flipper_switches.append(self.config['activation_switch'].name)
+        self.flipper_switches.append(self.config['activation_switch'])
         if self.config['eos_switch']:
-            self.flipper_switches.append(self.config['eos_switch'].name)
+            self.flipper_switches.append(self.config['eos_switch'])
 
-    def enable(self):
+    def enable(self, *args, **kwargs):
         """Enables the flipper by writing the necessary hardware rules to the
         hardware controller.
 
@@ -125,6 +144,10 @@ class Flipper(Device):
         rules). Note that this rule is the letter "i", not a numeral 1.
         I. Enable power if button is active and EOS is not active
         """
+
+        # todo disable first to clear any old rules?
+
+        self.log.debug('Enabling')
 
         # Apply the proper hardware rules for our config
 
@@ -193,7 +216,7 @@ class Flipper(Device):
         self.power = percent
         self.enable()
 
-    def disable(self):
+    def disable(self, *args, **kwargs):
         """Disables the flipper.
 
         This method makes it so the cabinet flipper buttons no longer control
@@ -202,7 +225,8 @@ class Flipper(Device):
 
         """
 
-        if self.config['flipper_switches']:
+        if self.flipper_switches:
+            self.log.debug("Disabling")
             for switch in self.flipper_switches:
                     self.machine.platform.clear_hw_rule(switch)
 
@@ -218,6 +242,8 @@ class Flipper(Device):
             coil_action_ms=-1,
             debounced=False)
 
+        self.rules['a'] = True
+
     def _enable_flipper_rule_B(self):
         """
         Rule  Type     Coil  Switch  Action
@@ -232,6 +258,8 @@ class Flipper(Device):
             pulse_ms=self.machine.coils[self.config['main_coil']].
                 config['pulse_ms'],
             debounced=False)
+
+        self.rules['b'] = True
 
     def _enable_flipper_rule_C(self):
         """
@@ -249,6 +277,8 @@ class Flipper(Device):
             pwm_off=self.machine.coils[self.config['main_coil']].config['pwm_on'],
             debounced=False)
 
+        self.rules['c'] = True
+
     def _enable_flipper_rule_D(self):
         """
         Rule  Type     Coil  Switch  Action
@@ -261,6 +291,8 @@ class Flipper(Device):
             coil_action_ms=-1,
             debounced=False)
 
+        self.rules['d'] = True
+
     def _enable_flipper_rule_E(self):
         """
         Rule  Type     Coil  Switch  Action
@@ -272,6 +304,8 @@ class Flipper(Device):
             coil_name=self.config['main_coil'],
             coil_action_ms=0,
             debounced=False)
+
+        self.rules['e'] = True
 
     def _enable_flipper_rule_F(self):
         """
@@ -286,6 +320,8 @@ class Flipper(Device):
                 coil_action_ms=0,
                 debounced=False)
 
+        self.rules['f'] = True
+
     def _enable_flipper_rule_G(self):
         """
         Rule  Type     Coil  Switch  Action
@@ -299,6 +335,8 @@ class Flipper(Device):
                 coil_action_ms=0,
                 debounced=False)
 
+        self.rules['g'] = True
+
     def _enable_flipper_rule_H(self):
         """
         Rule  Type     Coil  Switch  Action
@@ -311,6 +349,53 @@ class Flipper(Device):
             coil_action_ms=-1,
             pwm_on=self.machine.coils[self.config['main_coil']].config['pwm_on'],
             pwm_off=self.machine.coils[self.config['main_coil']].config['pwm_off'])
+
+        self.rules['h'] = True
+
+    def sw_flip(self):
+        """Activates the flipper via software as if the flipper button was
+        pushed.
+
+        This is needed because the real flipper activations are handled in
+        hardware, so if you want to flip the flippers with the keyboard or OSC
+        interfaces, you have to call this method.
+
+        Note this method will keep this flipper enabled until you call
+        sw_release().
+        """
+
+        # todo add support for other types of flipper coils
+
+        # Send the activation switch press to the switch controller
+        self.machine.switch_controller.process_switch(
+            name=self.config['activation_switch'],
+            state=1,
+            logical=True)
+
+        if self.rules['c']:  # pulse/pwm main
+            coil = self.machine.coils[self.config['main_coil']]
+            coil.pwm(
+                on_ms=coil.config['pwm_on'],
+                off_ms=coil.config['pwm_off'],
+                orig_on_ms=coil.config['pulse_ms']
+            )
+
+    def sw_release(self):
+        """Deactives the flipper via software as if the flipper button was
+        released. See the documentation for sw_flip() for details.
+        """
+
+        # Send the activation switch release to the switch controller
+        self.machine.switch_controller.process_switch(
+            name=self.config['activation_switch'],
+            state=0,
+            logical=True)
+
+        # disable the flipper coil(s)
+        for coil in self.flipper_coils:
+            self.machine.coils[coil].disable()
+
+
 
 # The MIT License (MIT)
 

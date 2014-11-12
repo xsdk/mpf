@@ -82,7 +82,7 @@ class EventManager(object):
         # If so, remove it
         # We use the slice of the full list [:] to make a copy so we can
         # delete from the original while iterating
-        for rh in self.registered_handlers[event][:]:
+        for rh in self.registered_handlers[event][:]:  # rh = registered hndlr
             if rh[0] == handler and rh[2] == kwargs:
                 self.registered_handlers[event].remove(rh)
 
@@ -98,31 +98,29 @@ class EventManager(object):
 
         return handler
 
-    def remove_handler(self, method, **kwargs):
+    def remove_handler(self, method, match_kwargs=True, **kwargs):
         """Removes an event handler.
 
-        Parameters
-        ----------
-
-        method : str
-            this is the method whose handlers you want to remove. This removes
-            all of them.
-
-        kwargs
-
+        Args:
+            method : The method whose handlers you want to remove.
+            match_kwargs: Boolean if False, removes all handlers for that method
+                regardless of the kwargs. If True (default) only removes the
+                handler if the kwargs you just passed match what's registered.
+            **kwargs: The kwargs of the handler you want to remove if
+                parameter `match_kwargs` is True
         """
-        # todo currently if you just pass method, it will remove handlers that
-        # do not have kwargs. If you also
-        # specify kwargs, then you will remove just those handlers. There's no
-        # way to remove all handlers, w/ and w/o kwargs, but that could be
-        # easy to add if needed.
 
         for event, handler_list in self.registered_handlers.iteritems():
             for handler_tup in handler_list[:]:  # copy via slice
-                if handler_tup[0] == method and handler_tup[2] == kwargs:
-                    handler_list.remove(handler_tup)
-                    self.log.debug("Removing method %s from event %s",
-                                   (str(method).split(' '))[2], event)
+                if handler_tup[0] == method:
+                    if not match_kwargs:
+                        handler_list.remove(handler_tup)
+                        self.log.debug("Removing method %s from event %s",
+                                       (str(method).split(' '))[2], event)
+                    elif handler_tup[2] == kwargs:
+                        handler_list.remove(handler_tup)
+                        self.log.debug("Removing method %s from event %s",
+                                       (str(method).split(' '))[2], event)
 
         # If this is the last handler for an event, remove that event
         for k in self.registered_handlers.keys():
@@ -157,7 +155,7 @@ class EventManager(object):
         """Posts an event which causes all the registered handlers to be
         called.
 
-        Only one event can be 'active' at a time, so if the event
+        Events are processed serially (e.g. one at a time), so if the event
         system is in the process of handling another event, this event is
         added to a queue.
 
@@ -166,23 +164,21 @@ class EventManager(object):
         You can add **kwargs to your handler methods if certain ones don't
         need them.
 
-        There are a few special parameters you can also pass here. (Should we
-        add these to the def statement above? Are we breaking pythonic rules
-        by not??)
-
-        Special keyword arguments include:
-
-        ev_type - if you specify "boolean" as an event type (by passing
-        ev_type='boolean') then this event will stop processing if any
-        handlers return False. Otherwise handlers that return False will have
-        no effect
-
-        callback - this is a method that will be called after the last handler
-        is done
+        Args:
+            event: A string name of the event you're posting. Note that you can
+                post whatever event you want. You don't have to set up anything
+                ahead of time, and if no handlers are registered for the event
+                you post, so be it.
+            ev_type: Optional parameter which specifies the type of event this
+                is. Options include 'boolean', 'queue', 'relay', or None. See
+                the documentation at https://missionpinball.com/docs for
+                details about the different event types.
+            callback: A method which will be called when the final handler is
+                done processing this event.
 
         Note that these two special keywords (ev_type and callback) are
         stripped from the list of keyword arguments that are passed to the
-        handlers. So you can use them here in your post() without handlers that
+        handlers, so you can use them here in your post() without handlers that
         do not expect keywords.
 
         """
@@ -239,6 +235,7 @@ class EventManager(object):
                 kwargs['queue'] = queue
 
             for handler in self.registered_handlers[event][:]:
+
                 # use slice above so we don't process new handlers that came
                 # in while we were processing previous handlers
 
@@ -293,7 +290,7 @@ class EventManager(object):
             if not queue:
                 # if we have a queue kwarg from before, strip it since we only
                 # needed it to setup the queue
-                if 'queue' in kwargs:
+                if kwargs and 'queue' in kwargs:
                     del kwargs['queue']
 
                 if result:

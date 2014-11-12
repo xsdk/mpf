@@ -14,8 +14,6 @@ that it doesn't require any P-ROC drivers or modules to be installed.
 # Documentation and more info at http://missionpinball.com/framework
 
 import logging
-import time
-from mpf.system.timing import Timing
 from mpf.system.platform import Platform
 
 
@@ -44,7 +42,7 @@ class HardwarePlatform(Platform):
     def configure_driver(self, config, device_type='coil'):
         # todo should probably throw out the number that we get since it could
         # be a weird string and just return an incremental int?
-        return VirtualDriver(config['number'])
+        return VirtualDriver(config['number']), config['number']
 
     def configure_switch(self, config):
         switch = VirtualSwitch(config['number'])
@@ -53,26 +51,26 @@ class HardwarePlatform(Platform):
         return switch, config['number'], 0
 
     def configure_matrixlight(self, config):
-        return VirtualMatrixLight(config['number'])
+        return VirtualMatrixLight(config['number']), config['number']
 
     def configure_led(self, config):
         return VirtualLED(config['number'])
 
     def configure_gi(self, config):
-        return VirtualGI(config['number'])
+        return VirtualGI(config['number']), config['number']
 
     def _do_set_hw_rule(self,
-                    sw,
-                    sw_activity,
-                    coil_action_ms,  # 0 = disable, -1 = hold forever
-                    coil=None,
-                    pulse_ms=0,
-                    pwm_on=0,
-                    pwm_off=0,
-                    delay=0,
-                    recycle_time=0,
-                    debounced=True,
-                    drive_now=False):
+                        sw,
+                        sw_activity,
+                        coil_action_ms,  # 0 = disable, -1 = hold forever
+                        coil=None,
+                        pulse_ms=0,
+                        pwm_on=0,
+                        pwm_off=0,
+                        delay=0,
+                        recycle_time=0,
+                        debounced=True,
+                        drive_now=False):
 
         pass
         # todo create switch handlers to fire coils based on these hardware
@@ -150,7 +148,7 @@ class VirtualDriver(object):
     def future_pulse(self, milliseconds=None, timestamp=0):
         pass
 
-    def patter(self, on_ms=10, off_ms=10, original_on_ms=0, now=True):
+    def pwm(self, on_ms=10, off_ms=10, original_on_ms=0, now=True):
         pass
 
     def pulsed_patter(self, on_ms=10, off_ms=10, run_time=0, now=True):

@@ -71,8 +71,26 @@ class HardwarePlatform(Platform):
 
         self.machine_type = pinproc.normalize_machine_type(
             self.machine.config['Hardware']['DriverBoards'])
-        self.proc = pinproc.PinPROC(self.machine_type)
-        self.proc.reset(1)
+
+        # new way starts below ---------------------
+
+        self.proc = None
+
+        while not self.proc:
+            try:
+                print "trying to connect to P-ROC"
+                self.proc = pinproc.PinPROC(self.machine_type)
+                self.proc.reset(1)
+            except:
+                print "Failed, trying again..."
+
+        # new way ends here -------------------------
+
+
+        # old way is these two lines:
+        # self.proc = pinproc.PinPROC(self.machine_type)
+        # self.proc.reset(1)
+
 
         # Because PDBs can be configured in many different ways, we need to
         # traverse the YAML settings to see how many PDBs are being used.
@@ -134,7 +152,7 @@ class HardwarePlatform(Platform):
             state['polarity'] = config['polarity']
             proc_driver_object.proc.driver_update_state(state)
 
-        return proc_driver_object
+        return proc_driver_object, config['number']
 
     def configure_switch(self, config):
         """ Configures a P-ROC switch.
@@ -237,11 +255,12 @@ class HardwarePlatform(Platform):
 
     def configure_matrixlight(self, config):
         """Configures a P-ROC matrix light."""
+        # On the P-ROC, matrix lights are drivers
         return self.configure_driver(config, 'light')
 
     def configure_gi(self, config):
         """Configures a P-ROC GI string light."""
-        # The P-ROC treats these the same as lights
+        # On the P-ROC, GI strings are drivers
         return self.configure_driver(config, 'light')
 
     def hw_loop(self):
@@ -270,7 +289,6 @@ class HardwarePlatform(Platform):
                 # todo we still have event types:
                 # pinproc.EventTypeSwitchClosedNondebounced
                 # pinproc.EventTypeSwitchOpenNondebounced
-                # Do we do anything with them?
 
         self.proc.watchdog_tickle()
         self.proc.flush()
@@ -287,6 +305,7 @@ class HardwarePlatform(Platform):
                         recycle_time=0,
                         debounced=True,
                         drive_now=False):
+
         """Used to write (or update) a hardware rule to the P-ROC.
 
         *Hardware Rules* are used to configure the P-ROC to automatically
@@ -444,6 +463,10 @@ class HardwarePlatform(Platform):
         else:
             self.hw_switch_rules[sw_rule_string] = this_driver
 
+        self.log.debug("Writing HW rule for switch: %s, event_type: %s,"
+                       "rule: %s, final_driver: %s, drive now: %s",
+                       sw.number, event_type,
+                       rule, final_driver, drive_now)
         self.proc.switch_update_rule(sw.number, event_type, rule, final_driver,
                                      drive_now)
 
@@ -463,21 +486,30 @@ class HardwarePlatform(Platform):
             The number of the switch whose rule you want to clear.
 
         """
+        self.log.debug("Clearing HW rule for switch: %s", sw_num)
+
         self.proc.switch_update_rule(sw_num, 'open_nondebounced',
                                      {'notifyHost': False,
-                                      'reloadActive': False}, [], False)
+                                      'reloadActive': False}, [])
         self.proc.switch_update_rule(sw_num, 'closed_nondebounced',
                                      {'notifyHost': False,
-                                      'reloadActive': False}, [], False)
+                                      'reloadActive': False}, [])
         self.proc.switch_update_rule(sw_num, 'open_debounced',
                                      {'notifyHost': True,
-                                      'reloadActive': False}, [], False)
+                                      'reloadActive': False}, [])
         self.proc.switch_update_rule(sw_num, 'closed_debounced',
                                      {'notifyHost': True,
-                                      'reloadActive': False}, [], False)
+                                      'reloadActive': False}, [])
 
         for entry in self.hw_switch_rules.keys():  # slice for copy
             if entry.startswith(self.machine.switches.number(sw_num).name):
+
+                # disable any drivers from this rule which are active now
+                # todo make this an option?
+                for driver_dict in self.hw_switch_rules[entry]:
+                    self.proc.driver_disable(driver_dict['driverNum'])
+
+                # Remove this rule from our list
                 del self.hw_switch_rules[entry]
 
         # todo need to read in the notifyHost settings and reapply those
